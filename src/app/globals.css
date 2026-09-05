@@ -19,52 +19,59 @@
   --color-input: var(--input);
   --color-ring: var(--ring);
 
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
-    Helvetica, Arial, sans-serif;
+  /* SF Pro first — the actual system font on macOS/iOS/iPadOS — then the
+     cross-platform fallbacks a browser resolves it to elsewhere. */
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
+    ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 
-  --radius-lg: 0.6rem;
-  --radius-md: 0.45rem;
-  --radius-sm: 0.3rem;
+  /* Apple's UI leans on soft, continuous-looking corners rather than sharp
+     rectangles — bigger radii across cards/sheets/controls. */
+  --radius-xl: 1.25rem;
+  --radius-lg: 1rem;
+  --radius-md: 0.75rem;
+  --radius-sm: 0.5rem;
 }
 
 :root {
-  --background: oklch(0.99 0.003 95);
-  --foreground: oklch(0.22 0.01 90);
+  /* Neutral, slightly cool grays (macOS system gray) instead of the
+     previous warm-tinted palette, plus a systemBlue accent. */
+  --background: oklch(0.985 0.002 260);
+  --foreground: oklch(0.19 0.006 260);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.22 0.01 90);
+  --card-foreground: oklch(0.19 0.006 260);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.22 0.01 90);
-  --primary: oklch(0.5 0.14 155);
-  --primary-foreground: oklch(0.99 0.01 155);
-  --muted: oklch(0.96 0.005 90);
-  --muted-foreground: oklch(0.5 0.008 90);
-  --accent: oklch(0.95 0.02 155);
-  --accent-foreground: oklch(0.3 0.02 155);
+  --popover-foreground: oklch(0.19 0.006 260);
+  --primary: oklch(0.55 0.19 258);
+  --primary-foreground: oklch(0.99 0.005 258);
+  --muted: oklch(0.955 0.003 260);
+  --muted-foreground: oklch(0.48 0.012 260);
+  --accent: oklch(0.94 0.03 258);
+  --accent-foreground: oklch(0.4 0.1 258);
   --destructive: oklch(0.58 0.22 27);
   --destructive-foreground: oklch(0.99 0.01 27);
-  --border: oklch(0.92 0.005 90);
-  --input: oklch(0.9 0.005 90);
-  --ring: oklch(0.5 0.14 155);
+  --border: oklch(0.915 0.004 260);
+  --input: oklch(0.88 0.005 260);
+  --ring: oklch(0.55 0.19 258);
 }
 
 .dark {
-  --background: oklch(0.19 0.008 95);
-  --foreground: oklch(0.95 0.003 90);
-  --card: oklch(0.23 0.008 95);
-  --card-foreground: oklch(0.95 0.003 90);
-  --popover: oklch(0.23 0.008 95);
-  --popover-foreground: oklch(0.95 0.003 90);
-  --primary: oklch(0.72 0.15 155);
-  --primary-foreground: oklch(0.16 0.02 155);
-  --muted: oklch(0.27 0.008 95);
-  --muted-foreground: oklch(0.68 0.008 90);
-  --accent: oklch(0.3 0.03 155);
-  --accent-foreground: oklch(0.92 0.02 155);
+  --background: oklch(0.17 0.006 260);
+  --foreground: oklch(0.96 0.002 260);
+  --card: oklch(0.22 0.007 260);
+  --card-foreground: oklch(0.96 0.002 260);
+  --popover: oklch(0.22 0.007 260);
+  --popover-foreground: oklch(0.96 0.002 260);
+  --primary: oklch(0.68 0.17 258);
+  --primary-foreground: oklch(0.14 0.02 258);
+  --muted: oklch(0.26 0.007 260);
+  --muted-foreground: oklch(0.68 0.012 260);
+  --accent: oklch(0.3 0.05 258);
+  --accent-foreground: oklch(0.88 0.05 258);
   --destructive: oklch(0.62 0.2 27);
   --destructive-foreground: oklch(0.98 0.01 27);
-  --border: oklch(0.32 0.02 95);
-  --input: oklch(0.36 0.02 95);
-  --ring: oklch(0.72 0.15 155);
+  --border: oklch(0.31 0.008 260);
+  --input: oklch(0.35 0.01 260);
+  --ring: oklch(0.68 0.17 258);
 }
 
 * {
@@ -87,4 +94,12 @@ body {
 .dni-scroll {
   scrollbar-width: thin;
   scrollbar-color: var(--color-border) transparent;
+}
+
+/* Frosted-glass chrome (sidebar, sticky headers) — macOS/iOS "vibrancy":
+   a translucent, blurred surface instead of a flat opaque one. */
+.dni-glass {
+  background-color: color-mix(in oklch, var(--color-card) 72%, transparent);
+  backdrop-filter: blur(20px) saturate(1.8);
+  -webkit-backdrop-filter: blur(20px) saturate(1.8);
 }
