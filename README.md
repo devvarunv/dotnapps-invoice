@@ -1,5 +1,7 @@
 # Dotnapps Invoice
 
+[![License](https://img.shields.io/badge/license-proprietary-red.svg)](LICENSE)
+
 > Create. Quote. Invoice. Share. Get Paid.
 
 A production-grade, multi-tenant SaaS for freelancers, agencies, consultants,
