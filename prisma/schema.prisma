@@ -1,0 +1,773 @@
+// Dotnapps Invoice — Prisma schema
+// Phase 1: Foundation (auth, business/tenancy, roles, audit, business profile).
+//
+// Design rules carried from the product spec:
+//   - Every business-owned record carries `businessId` (tenant scope).
+//   - Authorization is enforced in application code (server-side RBAC); the
+//     schema only provides the data to enforce it.
+//   - Unique quotation/invoice numbers are scoped per business (later phases).
+//   - Financial mutations are recorded in AuditLog.
+//   - Model stays modular so Core billing (Customer, ProductService,
+//     Quotation, Invoice, ...) and later phases attach without reshaping
+//     Foundation.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Identity
+// ---------------------------------------------------------------------------
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  // Platform-level staff flag for the Super Admin area (Phase 6). Distinct
+  // from per-business roles below.
+  isSuperAdmin Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  memberships        Membership[]
+  createdBiz         Business[]      @relation("BusinessCreatedBy")
+  sentInvites        Invite[]        @relation("InviteInvitedBy")
+  auditLogs          AuditLog[]      @relation("AuditLogActor")
+  createdCustomers   Customer[]      @relation("CustomerCreatedBy")
+  createdQuotations  Quotation[]     @relation("QuotationCreatedBy")
+  createdInvoices    Invoice[]       @relation("InvoiceCreatedBy")
+  createdPayments    Payment[]       @relation("PaymentCreatedBy")
+  sentReminders      ReminderEvent[] @relation("ReminderSentBy")
+  createdBulkBatches BulkSendBatch[] @relation("BulkBatchCreatedBy")
+  createdExpenses    Expense[]       @relation("ExpenseCreatedBy")
+  passwordResetTokens PasswordResetToken[]
+
+  @@index([email])
+}
+
+// Spec §4 "password reset" — a single-use, short-lived, hashed token (never
+// the raw token) that proves control of the account's email without a real
+// mail provider configured (Phase 7: same "show a proper setup state rather
+// than pretending" honesty rule as team invites/reminders/bulk sends).
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// Tenancy — "Business" per the product spec (Business onboarding, Business
+// Profile). Carries the fields required before a document can be sent
+// (spec §4: "Do not allow sending a document until required business/
+// document settings are valid.").
+// ---------------------------------------------------------------------------
+
+enum RegistrationType {
+  UNREGISTERED
+  REGULAR
+  COMPOSITION
+}
+
+model Business {
+  id          String @id @default(cuid())
+  name        String
+  slug        String @unique
+  createdById String
+  createdBy   User   @relation("BusinessCreatedBy", fields: [createdById], references: [id])
+
+  // Contact & address
+  contactEmail String?
+  contactPhone String?
+  addressLine1 String?
+  addressLine2 String?
+  city         String?
+  state        String?
+  postalCode   String?
+  country      String  @default("IN")
+
+  // GST / registration (spec §15)
+  gstin            String?
+  registrationType RegistrationType @default(UNREGISTERED)
+
+  // Branding
+  logoUrl String?
+
+  // Defaults for documents (spec §4, §8, §9)
+  currency         String @default("INR")
+  quotationPrefix  String @default("QT-")
+  quotationNextSeq Int    @default(1)
+  invoicePrefix    String @default("INV-")
+  invoiceNextSeq   Int    @default(1)
+
+  // Payment details shown on documents (spec §4)
+  bankAccountName   String?
+  bankAccountNumber String?
+  bankIfsc          String?
+  bankName          String?
+  upiId             String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships       Membership[]
+  invites           Invite[]
+  auditLogs         AuditLog[]
+  customers         Customer[]
+  productServices   ProductService[]
+  quotations        Quotation[]
+  invoices          Invoice[]
+  payments          Payment[]
+  reminderRules     ReminderRule[]
+  reminderEvents    ReminderEvent[]
+  bulkSendBatches   BulkSendBatch[]
+  expenseCategories ExpenseCategory[]
+  expenses          Expense[]
+  subscription      Subscription?
+
+  @@index([slug])
+}
+
+enum Role {
+  OWNER
+  ADMIN
+  ACCOUNTANT
+  SALES
+  STAFF
+}
+
+enum MembershipStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+model Membership {
+  id         String           @id @default(cuid())
+  userId     String
+  user       User             @relation(fields: [userId], references: [id])
+  businessId String
+  business   Business         @relation(fields: [businessId], references: [id])
+  role       Role
+  status     MembershipStatus @default(ACTIVE)
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+
+  @@unique([userId, businessId])
+  @@index([businessId])
+}
+
+enum InviteStatus {
+  PENDING
+  ACCEPTED
+  REVOKED
+  EXPIRED
+}
+
+model Invite {
+  id          String       @id @default(cuid())
+  businessId  String
+  business    Business     @relation(fields: [businessId], references: [id])
+  email       String
+  role        Role
+  token       String       @unique
+  status      InviteStatus @default(PENDING)
+  invitedById String
+  invitedBy   User         @relation("InviteInvitedBy", fields: [invitedById], references: [id])
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  createdAt   DateTime     @default(now())
+
+  @@unique([businessId, email])
+  @@index([businessId])
+  @@index([token])
+}
+
+// ---------------------------------------------------------------------------
+// Core billing — Phase 2 (spec §6 Customer Module, §7 Products & Services,
+// §8 Quotations, §9 Invoices, §10 PDF & Document Engine).
+//
+// GST design (spec §15): each document stores its own computed totals
+// (subtotal/discount/taxable value/CGST/SGST/IGST/grand total) rather than
+// recomputing from line items on every read — so a PDF generated today
+// still matches the numbers on screen even if a product's default price or
+// tax rate changes later. All computation flows through
+// `src/lib/billing/tax.ts`, the single tested calculation service the spec
+// requires.
+// ---------------------------------------------------------------------------
+
+model Customer {
+  id         String   @id @default(cuid())
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id])
+
+  name        String
+  companyName String?
+  email       String?
+  phone       String?
+  gstin       String?
+
+  billingAddressLine1 String?
+  billingAddressLine2 String?
+  billingCity         String?
+  billingState        String?
+  billingPostalCode   String?
+  billingCountry      String  @default("IN")
+
+  shippingSameAsBilling Boolean @default(true)
+  shippingAddressLine1  String?
+  shippingAddressLine2  String?
+  shippingCity          String?
+  shippingState         String?
+  shippingPostalCode    String?
+  shippingCountry       String?
+
+  notes      String?
+  isArchived Boolean @default(false)
+
+  createdById String
+  createdBy   User     @relation("CustomerCreatedBy", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  quotations Quotation[]
+  invoices   Invoice[]
+  payments   Payment[]
+
+  @@index([businessId])
+  @@index([businessId, isArchived])
+}
+
+model ProductService {
+  id         String   @id @default(cuid())
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id])
+
+  name           String
+  description    String?
+  sku            String?
+  hsnSac         String?
+  unit           String  @default("unit")
+  defaultPrice   Decimal @db.Decimal(12, 2)
+  taxRatePercent Decimal @default(0) @db.Decimal(5, 2)
+  isActive       Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  quotationItems QuotationItem[]
+  invoiceItems   InvoiceItem[]
+
+  @@index([businessId])
+  @@index([businessId, isActive])
+}
+
+enum QuotationStatus {
+  DRAFT
+  SENT
+  VIEWED
+  ACCEPTED
+  REJECTED
+  EXPIRED
+}
+
+model Quotation {
+  id         String   @id @default(cuid())
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id])
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id])
+
+  number String
+
+  status        QuotationStatus @default(DRAFT)
+  quotationDate DateTime        @default(now())
+  validUntil    DateTime?
+
+  notes              String?
+  termsAndConditions String?
+
+  // Totals — computed by src/lib/billing/tax.ts, stored for stability.
+  subtotal      Decimal @db.Decimal(12, 2)
+  discountTotal Decimal @default(0) @db.Decimal(12, 2)
+  taxableValue  Decimal @db.Decimal(12, 2)
+  cgstTotal     Decimal @default(0) @db.Decimal(12, 2)
+  sgstTotal     Decimal @default(0) @db.Decimal(12, 2)
+  igstTotal     Decimal @default(0) @db.Decimal(12, 2)
+  grandTotal    Decimal @db.Decimal(12, 2)
+  currency      String  @default("INR")
+
+  // Customer-facing portal (spec §17).
+  publicToken String    @unique
+  sentAt      DateTime?
+  viewedAt    DateTime?
+  respondedAt DateTime?
+
+  createdById String
+  createdBy   User     @relation("QuotationCreatedBy", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  items            QuotationItem[]
+  convertedInvoice Invoice?        @relation("QuotationToInvoice")
+
+  @@unique([businessId, number])
+  @@index([businessId])
+  @@index([businessId, status])
+  @@index([businessId, createdAt])
+  @@index([customerId])
+}
+
+model QuotationItem {
+  id          String    @id @default(cuid())
+  quotationId String
+  quotation   Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+
+  productServiceId String?
+  productService   ProductService? @relation(fields: [productServiceId], references: [id])
+
+  description     String
+  quantity        Decimal @db.Decimal(12, 2)
+  unit            String  @default("unit")
+  rate            Decimal @db.Decimal(12, 2)
+  discountPercent Decimal @default(0) @db.Decimal(5, 2)
+  taxRatePercent  Decimal @default(0) @db.Decimal(5, 2)
+  // Taxable value for this line (rate * quantity, less discount) — before tax.
+  amount          Decimal @db.Decimal(12, 2)
+  sortOrder       Int     @default(0)
+
+  @@index([quotationId])
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  VIEWED
+  CANCELLED
+  // PARTIALLY_PAID / PAID / OVERDUE arrive in Phase 3 once Payment exists —
+  // deriving them needs allocated-payment totals, not just this table.
+}
+
+model Invoice {
+  id         String   @id @default(cuid())
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id])
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id])
+
+  // Set when created via "convert to invoice" from an accepted quotation
+  // (spec §8 "Accepted quotation converts to invoice and links both records").
+  quotationId String?    @unique
+  quotation   Quotation? @relation("QuotationToInvoice", fields: [quotationId], references: [id])
+
+  number String
+
+  status       InvoiceStatus @default(DRAFT)
+  invoiceDate  DateTime      @default(now())
+  dueDate      DateTime?
+  paymentTerms String?
+
+  notes              String?
+  termsAndConditions String?
+
+  subtotal      Decimal @db.Decimal(12, 2)
+  discountTotal Decimal @default(0) @db.Decimal(12, 2)
+  taxableValue  Decimal @db.Decimal(12, 2)
+  cgstTotal     Decimal @default(0) @db.Decimal(12, 2)
+  sgstTotal     Decimal @default(0) @db.Decimal(12, 2)
+  igstTotal     Decimal @default(0) @db.Decimal(12, 2)
+  grandTotal    Decimal @db.Decimal(12, 2)
+  currency      String  @default("INR")
+
+  publicToken String    @unique
+  sentAt      DateTime?
+  viewedAt    DateTime?
+  cancelledAt DateTime?
+
+  createdById String
+  createdBy   User     @relation("InvoiceCreatedBy", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  items          InvoiceItem[]
+  allocations    PaymentAllocation[]
+  reminderEvents ReminderEvent[]
+  bulkSendItems  BulkSendItem[]
+
+  @@unique([businessId, number])
+  @@index([businessId])
+  @@index([businessId, status])
+  @@index([businessId, createdAt])
+  @@index([businessId, dueDate])
+  @@index([customerId])
+}
+
+model InvoiceItem {
+  id        String  @id @default(cuid())
+  invoiceId String
+  invoice   Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  productServiceId String?
+  productService   ProductService? @relation(fields: [productServiceId], references: [id])
+
+  description     String
+  quantity        Decimal @db.Decimal(12, 2)
+  unit            String  @default("unit")
+  rate            Decimal @db.Decimal(12, 2)
+  discountPercent Decimal @default(0) @db.Decimal(5, 2)
+  taxRatePercent  Decimal @default(0) @db.Decimal(5, 2)
+  amount          Decimal @db.Decimal(12, 2)
+  sortOrder       Int     @default(0)
+
+  @@index([invoiceId])
+}
+
+// ---------------------------------------------------------------------------
+// Collections — Phase 3 (spec §12 Payments & Receipts, §13 Payment
+// Reminders). Balance/status are never stored on Invoice — they're derived
+// at read time from ACTIVE payment allocations + due date
+// (`src/lib/billing/invoice-status.ts`), per spec's acceptance criterion
+// "Overdue status is deterministic and safe against stale jobs." A stored
+// status would need a cron to flip it and could go stale; a computed one
+// can't.
+// ---------------------------------------------------------------------------
+
+enum PaymentMethod {
+  UPI
+  BANK_TRANSFER
+  CARD
+  CASH
+  CHEQUE
+  OTHER
+}
+
+enum PaymentStatus {
+  ACTIVE
+  REVERSED
+}
+
+model Payment {
+  id         String   @id @default(cuid())
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id])
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id])
+
+  amount      Decimal       @db.Decimal(12, 2)
+  paymentDate DateTime
+  method      PaymentMethod
+  referenceId String?
+  notes       String?
+
+  // Spec §12: "use reversals/adjustments instead of destructive financial
+  // edits." A reversed payment's allocations stop counting toward invoice
+  // balance but the row (and its history) is never deleted.
+  status         PaymentStatus @default(ACTIVE)
+  reversedAt     DateTime?
+  reversalReason String?
+
+  createdById String
+  createdBy   User     @relation("PaymentCreatedBy", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  allocations PaymentAllocation[]
+
+  @@index([businessId])
+  @@index([businessId, paymentDate])
+  @@index([customerId])
+}
+
+model PaymentAllocation {
+  id        String  @id @default(cuid())
+  paymentId String
+  payment   Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  invoiceId String
+  invoice   Invoice @relation(fields: [invoiceId], references: [id])
+
+  amount    Decimal  @db.Decimal(12, 2)
+  createdAt DateTime @default(now())
+
+  @@index([paymentId])
+  @@index([invoiceId])
+}
+
+// Rule-based reminders (spec §13) — no AI, editable templates, one rule per
+// (business, kind). "Manual reminder and bulk reminder actions": manual
+// ships here; bulk is a Phase 4 concern per the spec's own build order.
+enum ReminderRuleKind {
+  BEFORE_DUE_7
+  BEFORE_DUE_2
+  ON_DUE_DATE
+  OVERDUE_3
+  OVERDUE_7
+  OVERDUE_30
+}
+
+enum ReminderChannel {
+  EMAIL
+  WHATSAPP
+  SMS
+}
+
+model ReminderRule {
+  id         String   @id @default(cuid())
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id])
+
+  kind     ReminderRuleKind
+  enabled  Boolean          @default(true)
+  channel  ReminderChannel  @default(EMAIL)
+  template String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([businessId, kind])
+}
+
+// Records that a reminder was sent for a given invoice+rule, so the same
+// rule never fires twice for the same invoice (spec: "Record reminder
+// events to prevent duplicate sends.").
+model ReminderEvent {
+  id         String   @id @default(cuid())
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id])
+  invoiceId  String
+  invoice    Invoice  @relation(fields: [invoiceId], references: [id])
+
+  kind     ReminderRuleKind
+  sentById String?
+  sentBy   User?            @relation("ReminderSentBy", fields: [sentById], references: [id])
+  sentAt   DateTime         @default(now())
+
+  @@unique([invoiceId, kind])
+  @@index([businessId])
+}
+
+// ---------------------------------------------------------------------------
+// Bulk — Phase 4 (spec §11 "Bulk Bill Share — Core Feature").
+//
+// "Process asynchronously in batches; one failure must not stop the
+// batch." — each item's outcome is written independently, so a problem
+// with one invoice never aborts the rest. There's no real email/WhatsApp/
+// SMS provider wired up yet (Settings has no provider config), so a
+// "sent" item here means the message was rendered and logged, not
+// delivered — same honesty rule as the single-document send/reminder
+// flows. A genuinely failed item records why (e.g. the business profile
+// isn't send-ready), never a fabricated error.
+// ---------------------------------------------------------------------------
+
+enum BulkAction {
+  SEND_INVOICE
+  SEND_REMINDER
+}
+
+model BulkSendBatch {
+  id         String   @id @default(cuid())
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id])
+
+  name    String
+  action  BulkAction
+  channel ReminderChannel
+
+  totalCount   Int @default(0)
+  sentCount    Int @default(0)
+  failedCount  Int @default(0)
+  skippedCount Int @default(0)
+
+  createdById String
+  createdBy   User     @relation("BulkBatchCreatedBy", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+
+  items BulkSendItem[]
+
+  @@index([businessId])
+  @@index([businessId, createdAt])
+}
+
+enum BulkItemStatus {
+  SENT
+  FAILED
+  SKIPPED
+}
+
+model BulkSendItem {
+  id      String        @id @default(cuid())
+  batchId String
+  batch   BulkSendBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  invoiceId String
+  invoice   Invoice @relation(fields: [invoiceId], references: [id])
+
+  status        BulkItemStatus
+  failureReason String?
+  // Rendered message, kept so a "sent" item can be reviewed/copied again
+  // later without recomputing it from possibly-changed invoice data.
+  message       String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([batchId, invoiceId])
+  @@index([batchId])
+  @@index([invoiceId])
+}
+
+// ---------------------------------------------------------------------------
+// Finance — Phase 5 (spec §14 Expenses, §16 Reports).
+//
+// Receipts are stored as bytes in Postgres, not a cloud object store —
+// there's no S3/blob storage configured anywhere in this app, and per the
+// spec's own instruction not to fake an unconfigured integration, storing
+// the file for real (even if not how a production deployment would scale
+// receipt storage) beats pretending an upload succeeded. Reports compute
+// everything at read time from Invoice/Payment/Quotation/Expense —
+// nothing here is denormalized, so a report is never stale.
+// ---------------------------------------------------------------------------
+
+model ExpenseCategory {
+  id         String   @id @default(cuid())
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id])
+
+  name      String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  expenses Expense[]
+
+  @@unique([businessId, name])
+  @@index([businessId])
+}
+
+model Expense {
+  id         String   @id @default(cuid())
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id])
+
+  vendorName  String
+  amount      Decimal       @db.Decimal(12, 2)
+  taxAmount   Decimal       @default(0) @db.Decimal(12, 2)
+  expenseDate DateTime
+  method      PaymentMethod
+  notes       String?
+
+  categoryId String?
+  category   ExpenseCategory? @relation(fields: [categoryId], references: [id])
+
+  // Receipt upload (spec §14 "Receipt upload as image/PDF") — stored
+  // directly since there's no object storage configured.
+  receiptFileName String?
+  receiptMimeType String?
+  receiptData     Bytes?
+
+  createdById String
+  createdBy   User     @relation("ExpenseCreatedBy", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([businessId])
+  @@index([businessId, expenseDate])
+  @@index([categoryId])
+}
+
+// ---------------------------------------------------------------------------
+// SaaS — Phase 6 (spec §19 SaaS Subscription Architecture, §20 Super Admin).
+//
+// No `UsageRecord` table (spec §21 lists one) — usage against a plan's
+// limits (users, customers, invoices/quotations/bulk-sends this month,
+// receipt storage) is derived by counting the rows that already exist
+// (Membership, Customer, Invoice, Quotation, BulkSendBatch, Expense),
+// the same "compute live, never denormalize" rule this app has used for
+// invoice status, GST/reports and reminders since Phase 3 — a separate
+// counter table would just be one more thing that can drift from the
+// truth. `limits` is a JSON bag rather than fixed columns so plans are
+// genuinely configurable (spec: "no plan names hardcoded" in app logic —
+// code reads `limits.maxInvoicesPerMonth` etc., never `if (plan.name ===
+// 'Growth')`).
+// ---------------------------------------------------------------------------
+
+model SubscriptionPlan {
+  id           String  @id @default(cuid())
+  name         String  @unique
+  slug         String  @unique
+  priceMonthly Decimal @db.Decimal(10, 2)
+  currency     String  @default("INR")
+  // { maxUsers, maxCustomers, maxInvoicesPerMonth, maxQuotationsPerMonth,
+  //   maxBulkSendsPerMonth, maxStorageMB } — a missing/null key means
+  // unlimited for that metric.
+  limits       Json
+  isActive     Boolean @default(true)
+  sortOrder    Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  subscriptions Subscription[]
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  GRACE
+  SUSPENDED
+  CANCELED
+}
+
+model Subscription {
+  id         String           @id @default(cuid())
+  businessId String           @unique
+  business   Business         @relation(fields: [businessId], references: [id])
+  planId     String
+  plan       SubscriptionPlan @relation(fields: [planId], references: [id])
+
+  status SubscriptionStatus @default(TRIALING)
+
+  trialEndsAt      DateTime?
+  currentPeriodEnd DateTime?
+  graceEndsAt      DateTime?
+  suspendedAt      DateTime?
+  cancelledAt      DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+}
+
+// ---------------------------------------------------------------------------
+// Audit — append-only log of security-sensitive and financial mutations
+// (spec §21 "Financial history should be auditable.", §28 "Audit logging.").
+// ---------------------------------------------------------------------------
+
+model AuditLog {
+  id         String    @id @default(cuid())
+  action     String
+  businessId String?
+  business   Business? @relation(fields: [businessId], references: [id])
+  actorId    String?
+  actor      User?     @relation("AuditLogActor", fields: [actorId], references: [id])
+  targetType String?
+  targetId   String?
+  metadata   Json?
+  ip         String?
+  createdAt  DateTime  @default(now())
+
+  @@index([businessId])
+  @@index([actorId])
+  @@index([action])
+  @@index([createdAt])
+}
