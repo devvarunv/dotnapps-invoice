@@ -28,15 +28,28 @@ export function LogoMark({ className }: { className?: string }) {
 export function Logo({
   className,
   href = "/",
+  tone = "default",
 }: {
   className?: string;
   href?: string | null;
+  /** "inverted" is white-on-dark, for placement on a black surface (e.g.
+   * the sidebar) rather than the app's normal light background. */
+  tone?: "default" | "inverted";
 }) {
   const mark = (
-    <span className={cn("flex items-center gap-2 font-semibold", className)}>
-      <LogoMark className="size-7 text-foreground" />
+    <span
+      className={cn(
+        "flex items-center gap-2 font-semibold",
+        tone === "inverted" ? "text-white" : "text-foreground",
+        className,
+      )}
+    >
+      <LogoMark className="size-7" />
       <span className="tracking-tight">
-        Dotnapps <span className="text-muted-foreground">Invoice</span>
+        Dotnapps{" "}
+        <span className={tone === "inverted" ? "text-white/50" : "text-muted-foreground"}>
+          Invoice
+        </span>
       </span>
     </span>
   );
