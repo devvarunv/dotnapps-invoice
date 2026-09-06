@@ -73,39 +73,38 @@ export default async function QuotationDetailPage({
           description="Draft — editable until sent."
           actions={<Badge tone={STATUS_TONE[quotation.status]}>{quotation.status}</Badge>}
         />
-        <Card className="mb-6">
-          <CardContent className="pt-5">
-            <QuotationForm
-              customers={customers}
-              products={products.map((p) => ({
-                id: p.id,
-                name: p.name,
-                unit: p.unit,
-                defaultPrice: p.defaultPrice.toString(),
-                taxRatePercent: p.taxRatePercent.toString(),
-              }))}
-              currency={quotation.currency}
-              quotation={{
-                id: quotation.id,
-                customerId: quotation.customerId,
-                quotationDate: quotation.quotationDate.toISOString().slice(0, 10),
-                validUntil: quotation.validUntil ? quotation.validUntil.toISOString().slice(0, 10) : null,
-                notes: quotation.notes,
-                termsAndConditions: quotation.termsAndConditions,
-                items: quotation.items.map((it) => ({
-                  key: it.id,
-                  productServiceId: it.productServiceId ?? "",
-                  description: it.description,
-                  quantity: it.quantity.toString(),
-                  unit: it.unit,
-                  rate: it.rate.toString(),
-                  discountPercent: it.discountPercent.toString(),
-                  taxRatePercent: it.taxRatePercent.toString(),
-                })),
-              }}
-            />
-          </CardContent>
-        </Card>
+        <div className="mb-6">
+          <QuotationForm
+            customers={customers}
+            products={products.map((p) => ({
+              id: p.id,
+              name: p.name,
+              unit: p.unit,
+              defaultPrice: p.defaultPrice.toString(),
+              taxRatePercent: p.taxRatePercent.toString(),
+            }))}
+            currency={quotation.currency}
+            businessName={ctx.business.name}
+            quotation={{
+              id: quotation.id,
+              customerId: quotation.customerId,
+              quotationDate: quotation.quotationDate.toISOString().slice(0, 10),
+              validUntil: quotation.validUntil ? quotation.validUntil.toISOString().slice(0, 10) : null,
+              notes: quotation.notes,
+              termsAndConditions: quotation.termsAndConditions,
+              items: quotation.items.map((it) => ({
+                key: it.id,
+                productServiceId: it.productServiceId ?? "",
+                description: it.description,
+                quantity: it.quantity.toString(),
+                unit: it.unit,
+                rate: it.rate.toString(),
+                discountPercent: it.discountPercent.toString(),
+                taxRatePercent: it.taxRatePercent.toString(),
+              })),
+            }}
+          />
+        </div>
         {canSend && <SendButton quotationId={quotation.id} />}
       </div>
     );

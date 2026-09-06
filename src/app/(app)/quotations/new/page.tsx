@@ -54,22 +54,19 @@ export default async function NewQuotationPage({
           </CardContent>
         </Card>
       ) : (
-        <Card>
-          <CardContent className="pt-5">
-            <QuotationForm
-              customers={customers}
-              products={products.map((p) => ({
-                id: p.id,
-                name: p.name,
-                unit: p.unit,
-                defaultPrice: p.defaultPrice.toString(),
-                taxRatePercent: p.taxRatePercent.toString(),
-              }))}
-              currency={ctx.business.currency}
-              defaultCustomerId={customerId}
-            />
-          </CardContent>
-        </Card>
+        <QuotationForm
+          customers={customers}
+          products={products.map((p) => ({
+            id: p.id,
+            name: p.name,
+            unit: p.unit,
+            defaultPrice: p.defaultPrice.toString(),
+            taxRatePercent: p.taxRatePercent.toString(),
+          }))}
+          currency={ctx.business.currency}
+          businessName={ctx.business.name}
+          defaultCustomerId={customerId}
+        />
       )}
     </div>
   );

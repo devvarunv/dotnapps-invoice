@@ -1,10 +1,11 @@
 "use client";
 
-import { useId, useMemo, useState } from "react";
+import { useId, useMemo, useState, useEffect } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { Input, Select } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { computeLiveTotals, liveLineAmount, formatLiveMoney } from "@/lib/billing/live-totals";
 
 export type EditableProduct = {
   id: string;
@@ -36,15 +37,6 @@ const EMPTY_ROW = (): EditableLineItem => ({
   taxRatePercent: "0",
 });
 
-function num(v: string): number {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : 0;
-}
-
-function money(n: number): string {
-  return n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
 /**
  * Client-side line item editor. Computes a live preview with plain
  * floating point (rounded for display only) — the authoritative totals
@@ -58,12 +50,16 @@ export function LineItemEditor({
   initialItems,
   currency,
   fieldError,
+  onChange,
 }: {
   name: string;
   products: EditableProduct[];
   initialItems?: EditableLineItem[];
   currency: string;
   fieldError?: string;
+  /** Mirrors the current rows up to a parent (e.g. a live document preview
+   * panel) whenever they change. */
+  onChange?: (rows: EditableLineItem[]) => void;
 }) {
   const [rows, setRows] = useState<EditableLineItem[]>(
     initialItems && initialItems.length > 0 ? initialItems : [EMPTY_ROW()],
@@ -72,17 +68,11 @@ export function LineItemEditor({
 
   const json = useMemo(() => JSON.stringify(rows), [rows]);
 
-  const totals = useMemo(() => {
-    let taxable = 0;
-    let tax = 0;
-    for (const r of rows) {
-      const gross = num(r.quantity) * num(r.rate);
-      const discount = gross * (num(r.discountPercent) / 100);
-      const amount = gross - discount;
-      taxable += amount;
-      tax += amount * (num(r.taxRatePercent) / 100);
-    }
-    return { taxable, tax, grand: taxable + tax };
+  const totals = useMemo(() => computeLiveTotals(rows), [rows]);
+
+  useEffect(() => {
+    onChange?.(rows);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows]);
 
   function updateRow(key: string, patch: Partial<EditableLineItem>) {
@@ -131,8 +121,7 @@ export function LineItemEditor({
           </thead>
           <tbody>
             {rows.map((row) => {
-              const gross = num(row.quantity) * num(row.rate);
-              const amount = gross - gross * (num(row.discountPercent) / 100);
+              const amount = liveLineAmount(row);
               return (
                 <tr key={row.key} className="border-b border-border last:border-0">
                   <td className="p-2">
@@ -207,7 +196,7 @@ export function LineItemEditor({
                     />
                   </td>
                   <td className="whitespace-nowrap p-2 text-right tabular-nums">
-                    {money(amount)}
+                    {formatLiveMoney(amount)}
                   </td>
                   <td className="p-2">
                     <button
@@ -234,15 +223,15 @@ export function LineItemEditor({
         <dl className="space-y-1 text-right text-sm">
           <div className="flex justify-end gap-4">
             <dt className="text-muted-foreground">Taxable value</dt>
-            <dd className="w-28 tabular-nums">{currency} {money(totals.taxable)}</dd>
+            <dd className="w-28 tabular-nums">{currency} {formatLiveMoney(totals.taxable)}</dd>
           </div>
           <div className="flex justify-end gap-4">
             <dt className="text-muted-foreground">Tax</dt>
-            <dd className="w-28 tabular-nums">{currency} {money(totals.tax)}</dd>
+            <dd className="w-28 tabular-nums">{currency} {formatLiveMoney(totals.tax)}</dd>
           </div>
           <div className="flex justify-end gap-4 font-semibold">
             <dt>Grand total</dt>
-            <dd className="w-28 tabular-nums">{currency} {money(totals.grand)}</dd>
+            <dd className="w-28 tabular-nums">{currency} {formatLiveMoney(totals.grand)}</dd>
           </div>
         </dl>
       </div>
