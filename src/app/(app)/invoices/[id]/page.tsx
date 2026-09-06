@@ -105,48 +105,51 @@ export default async function InvoiceDetailPage({
 
     return (
       <div>
-        <Link href="/invoices" className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
-          <ChevronLeft className="size-4" /> Invoices
-        </Link>
-        <PageHeader
+        <InvoiceForm
           title={invoice.number}
-          description="Draft — editable until sent."
-          actions={<Badge tone={EFFECTIVE_STATUS_TONE[effective]}>{EFFECTIVE_STATUS_LABELS[effective]}</Badge>}
+          backHref="/invoices"
+          backLabel="Invoices"
+          headerBadge={
+            <div className="mt-1 flex items-center gap-2">
+              <Badge tone={EFFECTIVE_STATUS_TONE[effective]}>{EFFECTIVE_STATUS_LABELS[effective]}</Badge>
+              <span className="text-sm text-muted-foreground">Draft — editable until sent.</span>
+            </div>
+          }
+          customers={customers}
+          products={products.map((p) => ({
+            id: p.id,
+            name: p.name,
+            unit: p.unit,
+            defaultPrice: p.defaultPrice.toString(),
+            taxRatePercent: p.taxRatePercent.toString(),
+          }))}
+          currency={invoice.currency}
+          businessName={ctx.business.name}
+          invoice={{
+            id: invoice.id,
+            customerId: invoice.customerId,
+            invoiceDate: invoice.invoiceDate.toISOString().slice(0, 10),
+            dueDate: invoice.dueDate ? invoice.dueDate.toISOString().slice(0, 10) : null,
+            paymentTerms: invoice.paymentTerms,
+            notes: invoice.notes,
+            termsAndConditions: invoice.termsAndConditions,
+            items: invoice.items.map((it) => ({
+              key: it.id,
+              productServiceId: it.productServiceId ?? "",
+              description: it.description,
+              quantity: it.quantity.toString(),
+              unit: it.unit,
+              rate: it.rate.toString(),
+              discountPercent: it.discountPercent.toString(),
+              taxRatePercent: it.taxRatePercent.toString(),
+            })),
+          }}
         />
-        <div className="mb-6">
-          <InvoiceForm
-            customers={customers}
-            products={products.map((p) => ({
-              id: p.id,
-              name: p.name,
-              unit: p.unit,
-              defaultPrice: p.defaultPrice.toString(),
-              taxRatePercent: p.taxRatePercent.toString(),
-            }))}
-            currency={invoice.currency}
-            businessName={ctx.business.name}
-            invoice={{
-              id: invoice.id,
-              customerId: invoice.customerId,
-              invoiceDate: invoice.invoiceDate.toISOString().slice(0, 10),
-              dueDate: invoice.dueDate ? invoice.dueDate.toISOString().slice(0, 10) : null,
-              paymentTerms: invoice.paymentTerms,
-              notes: invoice.notes,
-              termsAndConditions: invoice.termsAndConditions,
-              items: invoice.items.map((it) => ({
-                key: it.id,
-                productServiceId: it.productServiceId ?? "",
-                description: it.description,
-                quantity: it.quantity.toString(),
-                unit: it.unit,
-                rate: it.rate.toString(),
-                discountPercent: it.discountPercent.toString(),
-                taxRatePercent: it.taxRatePercent.toString(),
-              })),
-            }}
-          />
-        </div>
-        {canSend && <SendButton invoiceId={invoice.id} />}
+        {canSend && (
+          <div className="mt-6">
+            <SendButton invoiceId={invoice.id} />
+          </div>
+        )}
       </div>
     );
   }

@@ -33,17 +33,16 @@ export default async function NewInvoicePage({
     }),
   ]);
 
-  return (
-    <div>
-      <Link
-        href="/invoices"
-        className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-      >
-        <ChevronLeft className="size-4" /> Invoices
-      </Link>
-      <PageHeader title="New invoice" />
-
-      {customers.length === 0 ? (
+  if (customers.length === 0) {
+    return (
+      <div>
+        <Link
+          href="/invoices"
+          className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+        >
+          <ChevronLeft className="size-4" /> Invoices
+        </Link>
+        <PageHeader title="New invoice" />
         <Card>
           <CardContent className="pt-5 text-sm text-muted-foreground">
             You need at least one customer before creating an invoice.{" "}
@@ -53,21 +52,26 @@ export default async function NewInvoicePage({
             .
           </CardContent>
         </Card>
-      ) : (
-        <InvoiceForm
-          customers={customers}
-          products={products.map((p) => ({
-            id: p.id,
-            name: p.name,
-            unit: p.unit,
-            defaultPrice: p.defaultPrice.toString(),
-            taxRatePercent: p.taxRatePercent.toString(),
-          }))}
-          currency={ctx.business.currency}
-          businessName={ctx.business.name}
-          defaultCustomerId={customerId}
-        />
-      )}
-    </div>
+      </div>
+    );
+  }
+
+  return (
+    <InvoiceForm
+      title="Create new invoice"
+      backHref="/invoices"
+      backLabel="Invoices"
+      customers={customers}
+      products={products.map((p) => ({
+        id: p.id,
+        name: p.name,
+        unit: p.unit,
+        defaultPrice: p.defaultPrice.toString(),
+        taxRatePercent: p.taxRatePercent.toString(),
+      }))}
+      currency={ctx.business.currency}
+      businessName={ctx.business.name}
+      defaultCustomerId={customerId}
+    />
   );
 }

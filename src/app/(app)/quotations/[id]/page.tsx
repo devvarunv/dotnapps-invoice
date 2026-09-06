@@ -65,47 +65,50 @@ export default async function QuotationDetailPage({
 
     return (
       <div>
-        <Link href="/quotations" className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
-          <ChevronLeft className="size-4" /> Quotations
-        </Link>
-        <PageHeader
+        <QuotationForm
           title={quotation.number}
-          description="Draft — editable until sent."
-          actions={<Badge tone={STATUS_TONE[quotation.status]}>{quotation.status}</Badge>}
+          backHref="/quotations"
+          backLabel="Quotations"
+          headerBadge={
+            <div className="mt-1 flex items-center gap-2">
+              <Badge tone={STATUS_TONE[quotation.status]}>{quotation.status}</Badge>
+              <span className="text-sm text-muted-foreground">Draft — editable until sent.</span>
+            </div>
+          }
+          customers={customers}
+          products={products.map((p) => ({
+            id: p.id,
+            name: p.name,
+            unit: p.unit,
+            defaultPrice: p.defaultPrice.toString(),
+            taxRatePercent: p.taxRatePercent.toString(),
+          }))}
+          currency={quotation.currency}
+          businessName={ctx.business.name}
+          quotation={{
+            id: quotation.id,
+            customerId: quotation.customerId,
+            quotationDate: quotation.quotationDate.toISOString().slice(0, 10),
+            validUntil: quotation.validUntil ? quotation.validUntil.toISOString().slice(0, 10) : null,
+            notes: quotation.notes,
+            termsAndConditions: quotation.termsAndConditions,
+            items: quotation.items.map((it) => ({
+              key: it.id,
+              productServiceId: it.productServiceId ?? "",
+              description: it.description,
+              quantity: it.quantity.toString(),
+              unit: it.unit,
+              rate: it.rate.toString(),
+              discountPercent: it.discountPercent.toString(),
+              taxRatePercent: it.taxRatePercent.toString(),
+            })),
+          }}
         />
-        <div className="mb-6">
-          <QuotationForm
-            customers={customers}
-            products={products.map((p) => ({
-              id: p.id,
-              name: p.name,
-              unit: p.unit,
-              defaultPrice: p.defaultPrice.toString(),
-              taxRatePercent: p.taxRatePercent.toString(),
-            }))}
-            currency={quotation.currency}
-            businessName={ctx.business.name}
-            quotation={{
-              id: quotation.id,
-              customerId: quotation.customerId,
-              quotationDate: quotation.quotationDate.toISOString().slice(0, 10),
-              validUntil: quotation.validUntil ? quotation.validUntil.toISOString().slice(0, 10) : null,
-              notes: quotation.notes,
-              termsAndConditions: quotation.termsAndConditions,
-              items: quotation.items.map((it) => ({
-                key: it.id,
-                productServiceId: it.productServiceId ?? "",
-                description: it.description,
-                quantity: it.quantity.toString(),
-                unit: it.unit,
-                rate: it.rate.toString(),
-                discountPercent: it.discountPercent.toString(),
-                taxRatePercent: it.taxRatePercent.toString(),
-              })),
-            }}
-          />
-        </div>
-        {canSend && <SendButton quotationId={quotation.id} />}
+        {canSend && (
+          <div className="mt-6">
+            <SendButton quotationId={quotation.id} />
+          </div>
+        )}
       </div>
     );
   }

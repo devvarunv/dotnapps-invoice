@@ -33,17 +33,16 @@ export default async function NewQuotationPage({
     }),
   ]);
 
-  return (
-    <div>
-      <Link
-        href="/quotations"
-        className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-      >
-        <ChevronLeft className="size-4" /> Quotations
-      </Link>
-      <PageHeader title="New quotation" />
-
-      {customers.length === 0 ? (
+  if (customers.length === 0) {
+    return (
+      <div>
+        <Link
+          href="/quotations"
+          className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+        >
+          <ChevronLeft className="size-4" /> Quotations
+        </Link>
+        <PageHeader title="New quotation" />
         <Card>
           <CardContent className="pt-5 text-sm text-muted-foreground">
             You need at least one customer before creating a quotation.{" "}
@@ -53,21 +52,26 @@ export default async function NewQuotationPage({
             .
           </CardContent>
         </Card>
-      ) : (
-        <QuotationForm
-          customers={customers}
-          products={products.map((p) => ({
-            id: p.id,
-            name: p.name,
-            unit: p.unit,
-            defaultPrice: p.defaultPrice.toString(),
-            taxRatePercent: p.taxRatePercent.toString(),
-          }))}
-          currency={ctx.business.currency}
-          businessName={ctx.business.name}
-          defaultCustomerId={customerId}
-        />
-      )}
-    </div>
+      </div>
+    );
+  }
+
+  return (
+    <QuotationForm
+      title="Create new quotation"
+      backHref="/quotations"
+      backLabel="Quotations"
+      customers={customers}
+      products={products.map((p) => ({
+        id: p.id,
+        name: p.name,
+        unit: p.unit,
+        defaultPrice: p.defaultPrice.toString(),
+        taxRatePercent: p.taxRatePercent.toString(),
+      }))}
+      currency={ctx.business.currency}
+      businessName={ctx.business.name}
+      defaultCustomerId={customerId}
+    />
   );
 }
