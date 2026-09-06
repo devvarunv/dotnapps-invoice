@@ -55,7 +55,7 @@ export function Card({
   return (
     <div
       className={cn(
-        "rounded-xl border border-border/60 bg-card text-card-foreground shadow-[0_1px_2px_rgba(0,0,0,0.04),0_8px_24px_-12px_rgba(0,0,0,0.08)]",
+        "rounded-lg border border-border bg-card text-card-foreground shadow-sm",
         className,
       )}
       {...props}
@@ -166,7 +166,7 @@ export function Alert({
     <div
       role={tone === "error" ? "alert" : "status"}
       className={cn(
-        "rounded-lg border px-3.5 py-2.5 text-sm",
+        "rounded-md border px-3 py-2 text-sm",
         alertTones[tone],
         className,
       )}
